@@ -1,0 +1,16 @@
+# VS Code
+.vscode/
+.vscode/settings.json
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/**
+!data/**/
+
+# logs
+*.log
+
+# keep folders
+!.gitkeep
