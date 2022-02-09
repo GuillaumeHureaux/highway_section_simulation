@@ -30,7 +30,8 @@ class Car:
         # self.acceleration = self.init_acc
 
     def varvitesse(self, front_car):
-        if self.is_first:
+        # if self.is_first:
+        if front_car is self:
             dv = self.natural_acceleration * (
                 1 - (self.speed / self.desired_speed) ** self.delta
             )
@@ -86,7 +87,8 @@ class Car:
                     self.anti_oscillation_count = int(15 / dt)
         elif self.lane > 0 and self.anti_oscillation_count == 0:
             if (
-                ecart0dr > rear_car_right_lane * self.T or rear_car_right_lane is self
+                ecart0dr > rear_car_right_lane.speed * self.T
+                or rear_car_right_lane is self
             ):  # distance correspondant à 2 sec a la vitesse
                 if (
                     ecart0dv > front_car_right_lane.speed * self.T
@@ -184,6 +186,32 @@ def etat_initial(n_cars, car_length, initial_car_distance, speed_limit, lane_nb)
     return cars, first_car_in_lane
 
 
+def echelle_couleur():
+    def echelle(color_begin, color_end, n_vals):
+        r1, g1, b1 = color_begin[0], color_begin[1], color_begin[2]
+        r2, g2, b2 = color_end[0], color_end[1], color_end[2]
+        degrade = []
+        etendue = n_vals - 1
+        for i in range(n_vals):
+            alpha = 1 - i / etendue
+            beta = i / etendue
+            r = r1 * alpha + r2 * beta
+            g = g1 * alpha + g2 * beta
+            b = b1 * alpha + b2 * beta
+            degrade.append((r, g, b))
+        return degrade
+
+    deg1 = echelle([1, 0, 0], [1, 1, 0], 51)
+    deg2 = echelle([1, 1, 0], [0, 1, 0], 50)
+    deg = deg1 + deg2[1:]
+    # for i in range(len(deg1)):
+    #     deg.append(deg1[i])
+    # for i in range(1, len(deg2)):
+    #     deg.append(deg2[i])
+
+    return deg
+
+
 # Simulation parameters
 
 
@@ -196,12 +224,31 @@ car_params = {
     "s0": 30,  # distance minimale entre les voitures
 }
 
-n_cars = 3  # nombre de voitures au départ
+n_cars = 10  # nombre de voitures au départ
 initial_car_distance = 50  # distance initiale entre les voitures (m)
 dt = 1 / 20  # time step
 road_length = 1100
 road_speed_limit = 130 / 3.6  # 130km.h in m.s
 n_lane = 2
+echelle = echelle_couleur()
+# %%
+##Couleurs
+
+
+def choisir_couleur(car, echelle, road_speed_limit):
+    if car.speed <= road_speed_limit:
+        ind = int(99 * car.speed / road_speed_limit)
+        res = echelle[ind]
+    else:
+        res = [0, 0, 1]
+    return res
+
+
+def actu_couleurs(cars, echelle, road_speed_limit):
+    coul = []
+    for car in cars:
+        coul.append(choisir_couleur(car, echelle, road_speed_limit))
+    return coul
 
 
 # %% SIMULATION
@@ -210,10 +257,26 @@ cars, first_car_in_lane = etat_initial(
 )
 
 
-def simul_step(cars):
+def simul_step(cars, time, freq, road_length, car_length, road_speed_limit):
     car_to_delete = []
     for car in cars:
         car.step(road_length, cars, car_to_delete, dt, n_lane, first_car_in_lane)
+
+    if time % freq == freq - 1:
+        maxdesmin = first_car_in_lane[0]
+        for car in first_car_in_lane:
+            if car.pos > maxdesmin.pos:
+                maxdesmin = car
+
+        if maxdesmin.pos > -(road_length - car_length):
+            cars.append(
+                Car(
+                    -road_length,
+                    maxdesmin.lane,
+                    attribueVitesse(1, maxdesmin.speed),
+                    attribueVitesse(1, road_speed_limit),
+                )
+            )
 
     for car in car_to_delete:
         cars.remove(car)
@@ -223,24 +286,13 @@ def simul_step(cars):
 #     print(time)
 #     simul_step(cars)
 
-# %% matplotlib ipympl
+# %%
+
+#%matplotlib ipympl
+
 
 from matplotlib import animation
 import matplotlib.pyplot as plt
-
-
-def animate(i):
-    simul_step(cars)
-    graph = ax.scatter(
-        [car.pos for car in cars], [car.lane for car in cars], marker="s", color="blue"
-    )
-    return graph
-
-
-def init():
-    graph = ax.scatter([], [], animated=True)
-    return graph
-
 
 fig = plt.figure()  # initialise la figure
 
@@ -249,10 +301,37 @@ fig.clf()
 ax = fig.add_subplot(
     111, autoscale_on=False, xlim=(-road_length - 1, road_length), ylim=(-0.3, n_lane)
 )
+(pos,) = ax.plot([], [], "bo", ms=6)
+stat = ax.text(0.02, 0.87, "", transform=ax.transAxes)
+
+time = 0
+freq = int(3600 / (500 * dt))
+car_length = car_params["car_length"]
+
+
+def animate(i):
+    global time
+    time += 1
+    simul_step(cars, time, freq, road_length, car_length, road_speed_limit)
+    pos = ax.scatter(
+        [car.pos for car in cars],
+        [car.lane for car in cars],
+        color=actu_couleurs(cars, echelle, road_speed_limit),
+        marker="s",
+    )
+    # , marker="s", color="blue"
+    # )
+    stat.set_text(str(i))
+    return (pos, stat)
+
+
+def init():
+    pos = ax.scatter([], [], animated=True)
+    return (pos, stat)
 
 
 ani = animation.FuncAnimation(
-    fig, animate, frames=500, interval=1, blit=False, init_func=init
+    fig, animate, frames=100, interval=1, blit=True, init_func=init
 )
 
 plt.yticks(
